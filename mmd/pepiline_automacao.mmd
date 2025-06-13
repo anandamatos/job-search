@@ -1,0 +1,7 @@
+graph TD
+A[URL da Vaga] --> B{Plataforma?}
+B -->|LinkedIn| C[Extrator LinkedIn]
+B -->|Gupy| D[Extrator Gupy]
+C --> E[Normalização de Dados]
+D --> E
+E --> F[Armazenamento BD]

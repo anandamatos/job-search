@@ -1,0 +1,19 @@
+erDiagram
+    %% Entidades Tradicionais
+    EMPRESA ||--o{ VAGA : "publica"
+    EMPRESA ||--o{ CONTATO : "possui"
+    VAGA ||--o{ APLICACAO : "recebe"
+    APLICACAO ||--o{ PROCESSO_SELETIVO : "gera"
+    PROCESSO_SELETIVO ||--o{ ETAPA_PROCESSO : "contém"
+    APLICACAO }o--|| MATERIAL : "usa"
+    
+    %% Componentes de IA/Automação
+    VAGA }|--|| MODELO_IA : "classificada_por"
+    APLICACAO }|--o{ EVENTO_AUTOMACAO : "dispara"
+    MATERIAL }|--|| MODELO_IA : "otimizado_por"
+    ETAPA_PROCESSO }|--o{ INSIGHT_CARREIRA : "gera"
+    
+    %% Relacionamentos Adicionais
+    APLICACAO }|--|| CANAL_APLICACAO : "via"
+    APLICACAO }o--o{ TAG : "classificada_por"
+    CONTATO ||--o{ INTERACAO : "tem"
