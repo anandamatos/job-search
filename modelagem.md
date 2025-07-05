@@ -1564,27 +1564,27 @@ def generate_weekly_report():
 **Componentes:**
 ```mermaid
 classDiagram
-    class ABTest {
-        +str test_name
-        +str hypothesis
-        +list variations
-        +date start_date
-        +date end_date
-        +dict metrics
-        +setup()
-        +track_conversions()
-        +analyze_results()
-        +get_recommendation()
-    }
-    
-    class Variation {
-        +str name
-        +str description
-        +int weight
-        +bool is_control
-    }
-    
-    ABTest "1" *-- "*" Variation
+class ABTest {
+    +str test_name
+    +str hypothesis
+    +list variations
+    +date start_date
+    +date end_date
+    +dict metrics
+    +setup()
+    +track_conversions()
+    +analyze_results()
+    +get_recommendation()
+}
+
+class Variation {
+    +str name
+    +str description
+    +int weight
+    +bool is_control
+}
+
+ABTest "1" *-- "*" Variation
 ```
 
 **Exemplo de Teste:**
