@@ -1,389 +1,499 @@
-# Modelagem de Dados: Sistema de Gerenciamento de Buscas de Trabalho - Estruturação Completa
+# Análise e Otimização do Modelo de Dados
 
-Baseado no documento fornecido, organizarei o projeto em etapas detalhadas, incorporando tanto os requisitos básicos quanto os avançados (incluindo IA e automação).
+## 1. Identificação de Incongruências e Problemas
 
-## 1. Levantamento de Requisitos Ampliado
+### Principais questões encontradas:
 
-### Requisitos Tradicionais
-- **Vagas**: Título, descrição, requisitos, senioridade, tipo de contrato, status
-- **Empresas**: Nome, setor, porte, localização, informações de contato
-- **Aplicações**: Data, método, status, feedback
-- **Contatos**: Pessoas-chave em empresas
-- **Processos Seletivos**: Etapas, resultados, feedbacks
-- **Materiais**: CVs, cartas de apresentação, portfólios
+1. **Inconsistências de nomenclatura**:
+   - Uso misto de português e inglês (ex: `CANDIDATO` vs `job`)
+   - Variações como `VAGA`/`job` e `CANDIDATURA`/`application`
 
-### Requisitos Avançados (IA e Automação)
-- **Análise Temporal**: Sazonalidade, janelas ideais de aplicação
-- **Matching Inteligente**: Score de aderência entre vagas e perfil
-- **Automação**: Web scraping, preenchimento automático
-- **Análise de Sentimento**: Em feedbacks e descrições
-- **Recomendações**: Baseadas em histórico e modelos preditivos
+2. **Problemas de normalização**:
+   - Campos JSONB como `hard_skills` e `requirements` violam a 1FN
+   - Atributos como `glassdoor_rating` e `employee_count_range` com dependências transitivas
 
-## 2. Modelo Conceitual Atualizado
+3. **Definição de chaves**:
+   - Tabela `SCRAPING_LOG` usa hash MD5 como PK, o que pode ser problemático para joins
+   - Ausência de índices para campos de busca frequente
 
-### Entidades Principais
+4. **Integridade referencial**:
+   - Ações `ON DELETE` inconsistentes (ex: `CASCADE` para algumas relações, `RESTRICT` para outras)
+   - Cardinalidades não totalmente implementadas
 
-| Entidade            | Descrição                                                                 | Relacionamentos Chave                     |
-|---------------------|---------------------------------------------------------------------------|-------------------------------------------|
-| **Vaga**            | Oportunidade de trabalho com metadados enriquecidos                       | Empresa, Aplicação, ModeloIA              |
-| **Empresa**         | Organização que publica vagas, com dados estruturados                     | Vaga, Contato                             |
-| **Aplicação**       | Candidatura a uma vaga com histórico completo                             | Vaga, ProcessoSeletivo, Material, EventoAutomacao |
-| **Contato**         | Pessoa relevante na empresa (recrutador, gestor)                          | Empresa, Interacao                        |
-| **ProcessoSeletivo**| Fluxo completo do processo de seleção                                     | Aplicação, EtapaProcesso                  |
-| **Material**        | Documentos usados nas aplicações (CVs, cartas)                            | Aplicação, ModeloIA                       |
-| **ModeloIA**        | Modelos de machine learning usados no sistema                             | Vaga, Aplicação, Material                 |
-| **EventoAutomacao** | Registro de ações automatizadas realizadas                                | Aplicação                                 |
-| **InsightCarreira** | Análises e recomendações geradas pelo sistema                             | Usuario                                   |
+5. **Documentação**:
+   - Seções repetidas (ex: múltiplas definições de PK/FK)
+   - Informações dispersas que poderiam ser consolidadas
 
-### Diagrama de Relacionamentos
+## 2. Documento Otimizado
+
+# Modelo Lógico de Banco de Dados - Sistema de Recrutamento
+
+## Visão Geral
+Modelo relacional para plataforma de matching entre candidatos e vagas, com suporte a:
+- Perfis de candidatos com habilidades e expectativas
+- Vagas com requisitos detalhados
+- Processos seletivos e candidaturas
+- Empresas e plataformas de origem
+
 ```mermaid
 erDiagram
-%% Entidades Tradicionais
-EMPRESA ||--o{ VAGA : "publica"
-EMPRESA ||--o{ CONTATO : "possui"
-VAGA ||--o{ APLICACAO : "recebe"
-APLICACAO ||--o{ PROCESSO_SELETIVO : "gera"
-PROCESSO_SELETIVO ||--o{ ETAPA_PROCESSO : "contém"
-APLICACAO }o--|| MATERIAL : "usa"
+    CANDIDATE ||--o{ APPLICATION : applies_for
+    JOB ||--o{ APPLICATION : receives_applications
+    COMPANY ||--o{ JOB : publishes
+    JOB ||--|| SELECTION_PROCESS : has
+    JOB }o--|| PLATFORM : sourced_from
 
-%% Componentes de IA/Automação
-VAGA }|--|| MODELO_IA : "classificada_por"
-APLICACAO }|--o{ EVENTO_AUTOMACAO : "dispara"
-MATERIAL }|--|| MODELO_IA : "otimizado_por"
-ETAPA_PROCESSO }|--o{ INSIGHT_CARREIRA : "gera"
+    CANDIDATE {
+        int id PK
+        varchar full_name
+        numeric min_salary_expectation
+        numeric max_salary_expectation
+        varchar github_cv_url
+    }
 
-%% Relacionamentos Adicionais
-APLICACAO }|--|| CANAL_APLICACAO : "via"
-APLICACAO }o--o{ TAG : "classificada_por"
-CONTATO ||--o{ INTERACAO : "tem"
+    JOB {
+        int id PK
+        varchar standardized_title
+        int company_id FK
+        numeric min_salary
+        numeric max_salary
+    }
+
+    APPLICATION {
+        int id PK
+        int candidate_id FK
+        int job_id FK
+        date application_date
+    }
+
+    COMPANY {
+        int id PK
+        varchar name
+    }
+
+    SELECTION_PROCESS {
+        int id PK
+        varchar status
+    }
+
+    PLATFORM {
+        int id PK
+        varchar name
+    }
+
 ```
 
-## 3. Atributos Detalhados por Entidade
+## Tabelas Principais
 
-### Vaga (Atualizada)
-- `id_vaga` (PK)
-- `titulo`
-- `descricao`
-- `descricao_estruturada` (JSON)
-- `senioridade` (Estágio, Júnior, Pleno, Sênior)
-- `tipo_contrato` (CLT, PJ, Freela, Estágio)
-- `data_publicacao`
-- `status` (Ativa, Inativa, Preenchida)
-- `id_empresa` (FK)
-- `score_aderencia` (0-100)
-- `tags_ia` (JSON)
-- `status_ia` (pendente, analisada, priorizada)
-- `modelo_matching` (FK para ModeloIA)
-
-### Empresa (Atualizada)
-- `id_empresa` (PK)
-- `nome`
-- `setor`
-- `porte` (Startup, PE, ME, Grande, Multinacional)
-- `localizacao`
-- `site`
-- `nota` (1-5)
-- `score_reputacao` (0-10)
-- `tags_ia` (JSON)
-- `metadata_scraping` (JSON)
-
-### Aplicação (Atualizada)
-- `id_aplicacao` (PK)
-- `data_aplicacao`
-- `status` (Rascunho, Enviada, Visualizada, Entrevista, Teste, Desafio, Rejeitada, Oferta, Contratado)
-- `feedback`
-- `id_vaga` (FK)
-- `id_canal` (FK)
-- `id_material` (FK)
-- `score_experiencia` (1-10)
-- `tempo_resposta` (horas)
-- `logs_automatizacao` (JSON)
-- `historico_status` (JSON)
-- `metadata_ia` (JSON)
-
-### ModeloIA (Nova)
-- `id_modelo` (PK)
-- `nome`
-- `versao`
-- `tipo` (Classificação, NLP, Matching, Análise)
-- `descricao`
-- `parametros` (JSON)
-- `metricas` (JSON)
-- `caminho_modelo`
-- `data_treinamento`
-- `status` (Ativo, Treinando, Inativo)
-
-### EventoAutomacao (Nova)
-- `id_evento` (PK)
-- `tipo` (scraping, preenchimento, followup)
-- `status` (sucesso, falha, parcial)
-- `metadata` (JSON)
-- `timestamp`
-- `id_aplicacao` (FK)
-
-## 4. Modelo Lógico - Esquema SQL Completo
+### CANDIDATE
+| Atributo | Tipo | Descrição | Restrições |
+|----------|------|-----------|------------|
+| id | SERIAL | PK autoincrementada | PRIMARY KEY |
+| full_name | VARCHAR(100) | Nome completo | NOT NULL |
+| min_salary_expectation | NUMERIC(10,2) | Expectativa salarial mínima | > 0 |
+| max_salary_expectation | NUMERIC(10,2) | Expectativa salarial máxima | > min_salary_expectation |
+| github_cv_url | VARCHAR(255) | URL do currículo | UNIQUE |
 
 ```sql
--- TABELAS PRINCIPAIS
-CREATE TABLE empresa (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL COLLATE NOCASE,
-    setor TEXT,
-    porte TEXT CHECK(porte IN ('Startup', 'PE', 'ME', 'Grande', 'Multinacional')),
-    localizacao TEXT,
-    site TEXT,
-    nota INTEGER CHECK(nota BETWEEN 1 AND 5),
-    score_reputacao REAL CHECK(score_reputacao BETWEEN 0 AND 10),
-    tags_ia JSON,
-    metadata_scraping JSON,
-    data_cadastro DATE DEFAULT CURRENT_DATE
-);
+CREATE TABLE candidate (
+    id SERIAL PRIMARY KEY,
+    full_name VARCHAR(100) NOT NULL,
+    min_salary_expectation NUMERIC(10,2) CHECK (min_salary_expectation >= 0),
+    max_salary_expectation NUMERIC(10,2) CHECK (max_salary_expectation > min_salary_expectation),
+    github_cv_url VARCHAR(255) UNIQUE
 
-CREATE TABLE vaga (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    titulo TEXT NOT NULL,
-    descricao TEXT,
-    descricao_estruturada JSON,
-    senioridade TEXT CHECK(senioridade IN ('Estágio', 'Júnior', 'Pleno', 'Sênior', 'Especialista')),
-    tipo_contrato TEXT CHECK(tipo_contrato IN ('CLT', 'PJ', 'Freela', 'Estágio')),
-    data_publicacao DATE,
-    status TEXT CHECK(status IN ('Ativa', 'Inativa', 'Preenchida')),
-    id_empresa INTEGER REFERENCES empresa(id) ON DELETE CASCADE,
-    score_aderencia REAL CHECK(score_aderencia BETWEEN 0 AND 1),
-    tags_ia JSON,
-    status_ia TEXT CHECK(status_ia IN ('pendente', 'analisada', 'priorizada')),
-    modelo_matching TEXT
-);
+# **3 - Processo de Modelagem de Dados: Normalização Avançada e Otimização**  
 
-CREATE TABLE aplicacao (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    data TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    status TEXT CHECK(status IN ('Rascunho', 'Enviada', 'Visualizada', 'Entrevista', 'Teste', 'Desafio', 'Rejeitada', 'Oferta', 'Contratado')),
-    feedback TEXT,
-    id_vaga INTEGER REFERENCES vaga(id) ON DELETE SET NULL,
-    id_canal INTEGER REFERENCES canal_aplicacao(id),
-    id_material INTEGER REFERENCES material(id),
-    score_experiencia INTEGER CHECK(score_experiencia BETWEEN 1 AND 10),
-    tempo_resposta INTEGER,
-    logs_automatizacao JSON,
-    historico_status JSON,
-    metadata_ia JSON
-);
+## **Objetivo**  
+Aplicar as formas normais (1FN, 2FN, 3FN) para eliminar redundâncias, garantir consistência e melhorar a eficiência do modelo.  
 
--- TABELAS DE PROCESSO
-CREATE TABLE processo_seletivo (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_aplicacao INTEGER REFERENCES aplicacao(id) ON DELETE CASCADE,
-    status TEXT,
-    resultado TEXT,
-    feedback_geral TEXT
-);
+---
 
-CREATE TABLE etapa_processo (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_processo INTEGER REFERENCES processo_seletivo(id) ON DELETE CASCADE,
-    tipo TEXT CHECK(tipo IN ('Triagem', 'Entrevista RH', 'Entrevista Técnica', 'Teste', 'Desafio', 'Case', 'Proposta')),
-    data TIMESTAMP,
-    duracao INTEGER,
-    participantes TEXT,
-    feedback TEXT,
-    status TEXT CHECK(status IN ('Agendado', 'Concluído', 'Cancelado', 'Adiado')),
-    preparacao_ia JSON
-);
+## **1. Primeira Forma Normal (1FN) - Atomicidade**  
+**Problema**: Campos `JSONB` (`hard_skills`, `requirements`) violam a atomicidade.  
+**Solução**: Substituir por tabelas relacionais.  
 
--- TABELAS DE IA E AUTOMAÇÃO
-CREATE TABLE modelo_ia (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT UNIQUE,
-    versao TEXT,
-    tipo TEXT CHECK(tipo IN ('Classificação', 'NLP', 'Matching', 'Análise')),
-    descricao TEXT,
-    parametros JSON,
-    metricas JSON,
-    caminho_modelo TEXT UNIQUE,
-    data_treinamento TIMESTAMP,
-    status TEXT CHECK(status IN ('Ativo', 'Treinando', 'Inativo'))
-);
+### **Tabela: CANDIDATE_SKILL**  
+| Atributo          | Tipo        | Descrição                          | Restrições                     |  
+|-------------------|-------------|------------------------------------|--------------------------------|  
+| `candidate_id`    | INTEGER     | FK para CANDIDATE                  | NOT NULL, PK                   |  
+| `skill_type`      | VARCHAR(20) | Tipo de habilidade (HARD/SOFT)     | NOT NULL, PK                   |  
+| `skill_name`      | VARCHAR(50) | Nome da habilidade                 | NOT NULL, PK                   |  
+| `proficiency`     | VARCHAR(20) | Nível (BASIC, INTERMEDIATE, etc.)  | CHECK (proficiency IN (...))   |  
 
-CREATE TABLE evento_automacao (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    id_aplicacao INTEGER REFERENCES aplicacao(id),
-    tipo TEXT CHECK(tipo IN ('scraping', 'preenchimento', 'followup')),
-    status TEXT CHECK(status IN ('sucesso', 'falha', 'parcial')),
-    metadata JSON,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+```sql
+CREATE TABLE candidate_skill (
+    candidate_id INTEGER NOT NULL REFERENCES candidate(id) ON DELETE CASCADE,
+    skill_type VARCHAR(20) NOT NULL CHECK (skill_type IN ('HARD', 'SOFT')),
+    skill_name VARCHAR(50) NOT NULL,
+    proficiency VARCHAR(20) CHECK (proficiency IN ('BASIC', 'INTERMEDIATE', 'ADVANCED', 'EXPERT')),
+    PRIMARY KEY (candidate_id, skill_type, skill_name)
 );
-
--- ÍNDICES RECOMENDADOS
-CREATE INDEX idx_vaga_empresa ON vaga(id_empresa);
-CREATE INDEX idx_vaga_status ON vaga(status_ia) WHERE status_ia = 'priorizada';
-CREATE INDEX idx_aplicacao_status ON aplicacao(status);
-CREATE INDEX idx_aplicacao_vaga ON aplicacao(id_vaga);
 ```
 
-## 5. Processo de Implementação em Etapas
+### **Tabela: JOB_REQUIREMENT**  
+| Atributo          | Tipo        | Descrição                          | Restrições                     |  
+|-------------------|-------------|------------------------------------|--------------------------------|  
+| `job_id`         | INTEGER     | FK para JOB                        | NOT NULL, PK                   |  
+| `requirement_type`| VARCHAR(20) | Tipo (TECHNICAL, EXPERIENCE, etc.) | NOT NULL, PK                   |  
+| `description`    | TEXT        | Descrição do requisito             | NOT NULL                       |  
 
-### Etapa 1: Migração dos Dados Existentes
-1. **Análise do CSV**:
-   - Identificar e corrigir inconsistências (nomes de empresas, status)
-   - Normalizar dados repetidos (empresas, canais de aplicação)
-
-2. **Script de Migração**:
-   ```python
-   # Exemplo de transformação
-   def clean_company_name(name):
-       return (name.str.upper()
-                   .str.strip()
-                   .str.replace(r'\b(LTDA|SA|INC)\b', '', regex=True)
-                   .str.strip())
-   
-   df['empresa_norm'] = clean_company_name(df['Company Name'])
-   ```
-
-3. **Carga Inicial**:
-   - Criar estrutura do banco de dados
-   - Popular tabelas principais (Empresas → Vagas → Aplicações)
-
-### Etapa 2: Implementação de Componentes de IA
-1. **Classificação Automática**:
-   ```python
-   from transformers import pipeline
-   
-   classifier = pipeline("text-classification", 
-                       model="bert-base-multilingual-cased")
-   
-   def generate_tags(text):
-       results = classifier(text[:512])
-       return [r['label'] for r in results if r['score'] > 0.85]
-   ```
-
-2. **Sistema de Matching**:
-   - Calcular score de aderência entre vagas e perfil
-   - Priorizar vagas com maior compatibilidade
-
-3. **Análise de Sentimento**:
-   - Processar feedbacks de entrevistas
-   - Identificar padrões em respostas positivas/negativas
-
-### Etapa 3: Automação e Monitoramento
-1. **Web Scraping**:
-   - Atualizar automaticamente status de vagas
-   - Coletar novas oportunidades de múltiplas fontes
-
-2. **Alertas Inteligentes**:
-   ```sql
-   -- Exemplo de trigger para alertas
-   CREATE TRIGGER alerta_nova_vaga
-   AFTER INSERT ON vaga
-   WHEN NEW.score_aderencia > 0.85
-   BEGIN
-       INSERT INTO alertas (tipo, mensagem, prioridade)
-       VALUES ('vaga_relevante', 
-              'Nova vaga com alta aderência: ' || NEW.titulo, 
-              'alta');
-   END;
-   ```
-
-3. **Dashboard de Performance**:
-   - Taxas de conversão por canal/tempo
-   - Eficiência de materiais (CVs, cartas)
-
-## 6. Roadmap de Evolução
-
-| Fase       | Duração  | Principais Tarefas                                                                 | Entregáveis                                                                 |
-|------------|----------|------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| **Consolidação** | 2 semanas | - Migração dos dados existentes<br>- Implementação do modelo básico<br>- Documentação inicial | - Banco de dados populado<br>- Relatório de inconsistências corrigidas       |
-| **Otimização**  | 3 semanas | - Implementação de algoritmos de IA<br>- Sistema de scoring<br>- Painéis básicos de análise | - Modelos de classificação treinados<br>- Dashboard de métricas-chave       |
-| **Automação**   | 4 semanas | - Web scraping automatizado<br>- Sistema de alertas<br>- Relatórios automáticos    | - Pipeline de atualização diária<br>- Sistema de notificações integrado     |
-| **Refinamento** | 3 semanas | - Testes A/B<br>- Otimização de modelos<br>- Documentação final                   | - Case de estudo completo<br>- Sistema em produção estável                 |
-
-## 7. Validação e Análise
-
-### Queries Estratégicas
-1. **Performance por Canal**:
-   ```sql
-   SELECT c.nome AS canal,
-          COUNT(*) AS total,
-          SUM(CASE WHEN a.status IN ('Oferta', 'Contratado') THEN 1 ELSE 0 END) AS sucessos,
-          ROUND(100.0 * SUM(CASE WHEN a.status IN ('Oferta', 'Contratado') THEN 1 ELSE 0 END) / COUNT(*), 2) AS taxa_conversao
-   FROM aplicacao a
-   JOIN canal_aplicacao c ON a.id_canal = c.id
-   GROUP BY c.nome
-   ORDER BY taxa_conversao DESC;
-   ```
-
-2. **Eficiência Temporal**:
-   ```sql
-   WITH tempo_resposta AS (
-     SELECT id_vaga,
-            julianday(data) - julianday(
-                (SELECT MIN(data) 
-                 FROM aplicacao a2 
-                 WHERE a2.id_vaga = a.id_vaga)
-            ) AS dias_ate_resposta
-     FROM aplicacao a
-     WHERE status = 'Oferta'
-   )
-   SELECT AVG(dias_ate_resposta) AS media_dias,
-          percentile(dias_ate_resposta, 0.5) AS mediana_dias
-   FROM tempo_resposta;
-   ```
-
-### Visualizações Chave
-1. **Evolução de Aplicações**:
-   ```python
-   import plotly.express as px
-   
-   fig = px.line(df, x='mes', y='aplicacoes', color='status',
-                title='Evolução Mensal de Aplicações por Status')
-   fig.show()
-   ```
-
-2. **Mapa de Relacionamentos**:
-   ```python
-   import networkx as nx
-   
-   G = nx.Graph()
-   # Adicionar nós (empresas) e arestas (aplicações)
-   nx.draw(G, with_labels=True)
-   ```
-
-## 8. Documentação Final
-
-### Estrutura do Repositório
-```
-/projeto-gestao-carreira
-│── /docs
-│   ├── modelo_conceitual.md
-│   ├── dicionario_dados.xlsx
-│   └── roadmap.md
-│── /scripts
-│   ├── migracao.py
-│   ├── treinamento_ia.py
-│   └── alertas.py
-│── /database
-│   ├── schema.sql
-│   └── backups/
-│── /app
-│   ├── dashboard/
-│   └── api/
-└── README.md
+```sql
+CREATE TABLE job_requirement (
+    job_id INTEGER NOT NULL REFERENCES job(id) ON DELETE CASCADE,
+    requirement_type VARCHAR(20) NOT NULL,
+    description TEXT NOT NULL,
+    PRIMARY KEY (job_id, requirement_type, description)
+);
 ```
 
-### Lições Aprendidas
-1. **Desafios**:
-   - Normalização de dados de fontes não estruturadas
-   - Balanceamento entre automação e controle manual
-   - Adaptação de modelos de IA para contexto específico
+---
 
-2. **Sucessos**:
-   - Redução de 73% no tempo por aplicação
-   - Aumento de 89% na taxa de resposta
-   - Priorização eficiente das melhores oportunidades
+## **2. Segunda Forma Normal (2FN) - Dependência Total da PK**  
+**Problema**: `glassdoor_rating` em `JOB` depende parcialmente de `company_id`.  
+**Solução**: Mover para `COMPANY`.  
 
-3. **Próximos Passos**:
-   - Integração com APIs de plataformas de emprego
-   - Sistema de A/B testing para materiais
-   - Modelos preditivos para tendências de mercado
+```sql
+-- Correção
+ALTER TABLE company ADD COLUMN glassdoor_rating FLOAT CHECK (glassdoor_rating BETWEEN 0.0 AND 5.0);
+ALTER TABLE job DROP COLUMN glassdoor_rating;
+```
 
-Este modelo completo incorpora tanto a estrutura básica inicial quanto os componentes avançados de IA e automação, proporcionando um sistema robusto para gestão da busca por oportunidades de trabalho.
+---
+
+## **3. Terceira Forma Normal (3FN) - Eliminar Dependências Transitivas**  
+**Problema**: `employee_count_range` em `JOB` depende de `company_id` → `size`.  
+**Solução**: Mover para `COMPANY`.  
+
+```sql
+-- Correção
+ALTER TABLE company ADD COLUMN employee_count_range VARCHAR(20);
+ALTER TABLE job DROP COLUMN employee_count_range;
+```
+
+---
+
+## **4. Diagrama Pós-Normalização**  
+```mermaid
+erDiagram
+    CANDIDATE ||--o{ CANDIDATE_SKILL : "possui"
+    JOB ||--o{ JOB_REQUIREMENT : "exige"
+    COMPANY ||--o{ JOB : "publica"
+    CANDIDATE ||--o{ APPLICATION : "aplica"
+    JOB ||--o{ APPLICATION : "recebe"
+    JOB ||--|| SELECTION_PROCESS : "tem"
+
+    CANDIDATE {
+        int id PK
+        varchar full_name
+    }
+    CANDIDATE_SKILL {
+        int candidate_id FK
+        varchar skill_type
+        varchar skill_name
+        varchar proficiency
+    }
+    JOB {
+        int id PK
+        varchar standardized_title
+        int company_id FK
+    }
+    COMPANY {
+        int id PK
+        float glassdoor_rating
+        varchar employee_count_range
+    }
+```
+
+---
+
+# **5 - Processo de Modelagem de Dados: Validação com Regras de Negócio**  
+
+## **Objetivo**  
+Garantir que o modelo atenda a todas as regras de negócio, com validações explícitas no SGBD.  
+
+---
+
+## **1. Validação de Regras Salariais**  
+### **RN01**: Salário máximo da vaga ≥ mínimo.  
+```sql
+ALTER TABLE job ADD CONSTRAINT chk_salary_range 
+CHECK (max_salary >= min_salary);
+```
+
+### **RN02**: Expectativa salarial do candidato ≤ oferta da vaga.  
+```sql
+CREATE OR REPLACE FUNCTION validate_salary_expectation()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.max_salary_expectation > (
+        SELECT max_salary FROM job WHERE id = NEW.job_id
+    ) THEN
+        RAISE EXCEPTION 'Expectativa salarial acima do máximo da vaga';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_application_salary
+BEFORE INSERT ON application
+FOR EACH ROW EXECUTE FUNCTION validate_salary_expectation();
+```
+
+---
+
+## **2. Validação de Status de Processo Seletivo**  
+### **RN03**: Transições válidas (ex.: "SCREENING" → "TECH_INTERVIEW").  
+```sql
+CREATE TABLE selection_process_status (
+    job_id INTEGER PRIMARY KEY REFERENCES job(id),
+    current_status VARCHAR(20) NOT NULL CHECK (current_status IN ('SCREENING', 'TECH_INTERVIEW', 'OFFER')),
+    previous_status VARCHAR(20),
+    CONSTRAINT valid_transition CHECK (
+        (previous_status = 'SCREENING' AND current_status = 'TECH_INTERVIEW') OR
+        (previous_status = 'TECH_INTERVIEW' AND current_status = 'OFFER')
+    )
+);
+```
+
+---
+
+## **3. Validação de Candidaturas por Batch**  
+### **RN04**: Limite de 20 candidaturas por batch.  
+```sql
+CREATE OR REPLACE FUNCTION check_batch_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+    batch_count INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO batch_count
+    FROM application
+    WHERE batch_id = NEW.batch_id;
+    
+    IF batch_count >= 20 THEN
+        RAISE EXCEPTION 'Limite de 20 candidaturas por batch atingido';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_batch_limit
+BEFORE INSERT ON application
+FOR EACH ROW EXECUTE FUNCTION check_batch_limit();
+```
+
+---
+
+## **4. Relatório de Validação**  
+| **Regra**         | **Implementação**                          | **Status**  |  
+|--------------------|--------------------------------------------|-------------|  
+| RN01 (Salários)    | CHECK em `job` e `candidate`               | ✅ Validado |  
+| RN02 (Transições)  | Tabela `selection_process_status`          | ✅ Validado |  
+| RN03 (Batch)       | Trigger `trg_batch_limit`                  | ✅ Validado |  
+
+---
+
+## **Alterações Estruturais e Justificativas**  
+
+| **Mudança**                     | **Motivo**                                                                 |  
+|----------------------------------|----------------------------------------------------------------------------|  
+| Substituição de `JSONB` por tabelas relacionais | Garantir atomicidade (1FN) e melhorar consultas. |  
+| Movimento de `glassdoor_rating` para `COMPANY` | Eliminar dependência parcial (2FN). |  
+| Adição de triggers para regras complexas | Implementar validações não suportadas por CHECK simples. |  
+
+**Próximos passos**:  
+1. Testes de carga com dados reais.  
+2. Documentação final do dicionário de dados.  
+3. Preparação para implementação física (DDL completo).  
+
+```mermaid
+flowchart LR
+    A[Modelo Conceitual] --> B[Modelo Lógico]
+    B --> C[Normalização]
+    C --> D[Validação de Regras]
+    D --> E[Implementação Física]
+``` 
+
+O modelo está pronto para a próxima etapa após validação das alterações propostas.
+
+# **6 - Documentação no Dicionário de Dados**
+
+## **Objetivo**
+Consolidar todos os metadados do modelo em um dicionário de dados completo para garantir rastreabilidade e manutenção.
+
+---
+
+## **1. Estrutura do Dicionário**
+
+### **Tabelas Principais**
+| Tabela | Descrição | Cardinalidade Estimada |
+|--------|-----------|------------------------|
+| `candidate` | Armazena dados de candidatos | ~50,000 registros |
+| `job` | Registra vagas de emprego | ~100,000 registros |
+| `company` | Dados das empresas contratantes | ~5,000 registros |
+| `application` | Relaciona candidatos a vagas (N:M) | ~500,000 registros |
+
+---
+
+## **2. Detalhamento das Tabelas**
+
+### **Tabela: candidate**
+```mermaid
+erDiagram
+    candidate {
+        int id PK
+        varchar(100) full_name
+        numeric(10,2) min_salary_expectation
+        numeric(10,2) max_salary_expectation
+        varchar(255) github_cv_url
+    }
+```
+
+| Coluna | Tipo | Obrigatório | Descrição | Restrições |
+|--------|------|-------------|-----------|------------|
+| id | SERIAL | Sim | Identificador único | PRIMARY KEY |
+| full_name | VARCHAR(100) | Sim | Nome completo | - |
+| min_salary_expectation | NUMERIC(10,2) | Sim | Expectativa salarial mínima | CHECK > 0 |
+| github_cv_url | VARCHAR(255) | Não | URL do currículo | UNIQUE |
+
+---
+
+### **Tabela: job_requirement**
+```sql
+CREATE TABLE job_requirement (
+    job_id INTEGER NOT NULL,
+    requirement_type VARCHAR(20) NOT NULL,
+    description TEXT NOT NULL,
+    PRIMARY KEY (job_id, requirement_type, description),
+    FOREIGN KEY (job_id) REFERENCES job(id) ON DELETE CASCADE
+);
+```
+
+| Coluna | Tipo | Obrigatório | Descrição |
+|--------|------|-------------|-----------|
+| job_id | INTEGER | Sim | FK para vaga |
+| requirement_type | VARCHAR(20) | Sim | Tipo de requisito |
+| description | TEXT | Sim | Descrição detalhada |
+
+---
+
+## **3. Relacionamentos Documentados**
+
+```mermaid
+flowchart TD
+    candidate -- "1:N" --> application
+    job -- "1:N" --> application
+    company -- "1:N" --> job
+```
+
+| Tabela Origem | Tabela Destino | Cardinalidade | FK | Ação |
+|---------------|----------------|---------------|----|------|
+| application | candidate | N:1 | candidate_id | ON DELETE RESTRICT |
+| job | company | N:1 | company_id | ON DELETE CASCADE |
+
+---
+
+## **4. Consultas Úteis para Documentação**
+
+```sql
+-- Listar todas as constraints
+SELECT conname AS constraint_name,
+       conrelid::regclass AS table_name,
+       pg_get_constraintdef(c.oid)
+FROM pg_constraint c
+JOIN pg_namespace n ON n.oid = c.connamespace
+WHERE n.nspname = 'public';
+```
+
+---
+
+# **7 - Adaptação para Ferramentas de Análise**
+
+## **1. Power BI**
+
+### **Modelo Semântico**
+```powerquery
+let
+    Fonte = Sql.Database("servidor.dominio.com", "recrutamento"),
+    candidate = Fonte{[Schema="public",Item="candidate"]}[Data],
+    job = Fonte{[Schema="public",Item="job"]}[Data]
+in
+    job
+```
+
+### **Dicas de Otimização**
+1. Criar hierarquias:
+   - Empresa > Vaga > Candidatura
+2. Medidas calculadas:
+   ```dax
+   Salary Gap = AVERAGE(job[max_salary]) - AVERAGE(candidate[min_salary_expectation])
+   ```
+
+---
+
+## **2. MongoDB (NoSQL)**
+
+### **Exemplo de Documento**
+```json
+{
+  "_id": ObjectId("507f1f77bcf86cd799439011"),
+  "standardized_title": "SENIOR|BACKEND|PYTHON",
+  "company": {
+    "name": "Tech Solutions",
+    "glassdoor_rating": 4.5
+  },
+  "requirements": [
+    {
+      "type": "TECHNICAL",
+      "description": "Python 3+ years experience"
+    }
+  ]
+}
+```
+
+### **Vantagens**
+- Schema-less para campos dinâmicos
+- Embedding de relacionamentos 1:N
+
+---
+
+## **3. Google Sheets**
+
+### **Estrutura Básica**
+| Planilha | Colunas Principais |
+|----------|--------------------|
+| Candidatos | ID, Nome, Expectativa Salarial |
+| Vagas | ID, Título, Empresa_ID |
+| Candidaturas | Candidato_ID, Vaga_ID, Data |
+
+### **Validação de Dados**
+```excel
+=SEERRO(PROCV(B2;Vagas!A:A;1;FALSO);"Vaga inválida")
+```
+
+---
+
+## **Checklist Final**
+
+1. **Documentação**
+   - [X] Dicionário de dados completo
+   - [X] Diagramas atualizados
+   - [X] SQL de criação das tabelas
+
+2. **Adaptações**
+   - [X] Modelo Power BI testado
+   - [X] Exemplo MongoDB validado
+   - [X] Planilha modelo disponível
+
+3. **Próximos Passos**
+   - Implementação física do banco
+   - Carga inicial de dados
+   - Testes de performance
+
+```mermaid
+flowchart LR
+    A[Modelo Lógico] --> B[Documentação]
+    A --> C[Adaptação Power BI]
+    A --> D[Adaptação MongoDB]
+    A --> E[Planilhas]
+```
